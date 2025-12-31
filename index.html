@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Sistema de Control y Monitoreo</title>
+
+<style>
+body{
+  margin:0;
+  font-family:Arial, Helvetica, sans-serif;
+  background:#cfcfcf;
+  color:#222;
+}
+
+/* HEADER */
+header{
+  background:linear-gradient(90deg,#b71c1c,#0d47a1);
+  color:white;
+  padding:18px;
+  text-align:center;
+}
+header h1{margin:4px 0;}
+header h2{margin:4px 0;font-weight:normal;}
+header h3{margin:4px 0;color:#ffeb3b;}
+
+/* GENERAL */
+.container{padding:15px;}
+
+.card{
+  background:#eeeeee;
+  border-radius:12px;
+  padding:15px;
+  margin-bottom:15px;
+  box-shadow:0 4px 10px rgba(0,0,0,.25);
+}
+
+/* BOTON */
+button{
+  padding:12px 20px;
+  font-size:16px;
+  border:none;
+  border-radius:10px;
+  cursor:pointer;
+  color:white;
+}
+.btnBlue{background:#1565c0;}
+.btnGreen{background:#2e7d32;}
+.btnRed{background:#c62828;}
+
+/* ESTADOS */
+.status{
+  display:flex;
+  justify-content:space-around;
+  gap:15px;
+}
+.indicator{
+  padding:10px 18px;
+  border-radius:20px;
+  font-weight:bold;
+  color:white;
+}
+.motorON{background:#2e7d32;}
+.motorOFF{background:#b71c1c;}
+.lubON{background:#0277bd;}
+.lubOFF{background:#455a64;}
+
+/* GESTOS */
+.gestos{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:20px;
+}
+
+.gestoBox{
+  display:flex;
+  gap:10px;
+  align-items:center;
+}
+
+.gestoInfo{
+  width:180px;
+  font-weight:bold;
+}
+
+canvas{
+  background:#000;
+  border-radius:8px;
+}
+
+/* HISTORIAL */
+#historial{
+  background:#212121;
+  color:#00e676;
+  padding:10px;
+  border-radius:8px;
+  font-family:monospace;
+  font-size:13px;
+  max-height:140px;
+  overflow-y:auto;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+  <h1>Sistema de Control y Monitoreo</h1>
+  <h2>Automatización e Instrumentación</h2>
+  <h3>Autores: William Pallo – Christopher Nacimba</h3>
+  <h2>SISTEMA DE PREDICCIÓN DE FALLOS INDUSTRIALES</h2>
+</header>
+
+<div class="container">
+
+<div class="card">
+  <button class="btnBlue" onclick="connect()">Conectar Bluetooth</button>
+  <p id="status">Estado: Desconectado</p>
+</div>
+
+<div class="card status">
+  <div id="motorState" class="indicator motorON">MOTOR: ON</div>
+  <div id="lubState" class="indicator lubOFF">LUBRICADOR: OFF</div>
+</div>
+
+<div class="card gestos">
+
+  <div class="gestoBox">
+    <div class="gestoInfo">
+      GESTO 1<br>
+      Valor: <span id="g1">0.0000</span><br>
+      MAX: <span id="g1max">0.0000</span>
+    </div>
+    <canvas id="c1" width="300" height="120"></canvas>
+  </div>
+
+  <div class="gestoBox">
+    <div class="gestoInfo">
+      GESTO 2<br>
+      Valor: <span id="g2">0.0000</span><br>
+      MAX: <span id="g2max">0.0000</span>
+    </div>
+    <canvas id="c2" width="300" height="120"></canvas>
+  </div>
+
+</div>
+
+<div class="card">
+  <button class="btnGreen" onclick="sendCmd('REARME')">REARME</button>
+  <button class="btnBlue" onclick="sendCmd('LUB_ON')">LUBRICAR</button>
+  <button class="btnRed" onclick="sendCmd('LUB_OFF')">DETENER</button>
+</div>
+
+<div class="card">
+  <h3>Histórico de Fallas</h3>
+  <div id="historial"></div>
+</div>
+
+</div>
+
+<script>
+let rxChar, txChar;
+
+let g1buf=[], g2buf=[];
+const MAX_POINTS = 80;   // 🔴 MÁS JUNTAS (clave)
+let g1max=0, g2max=0;
+
+function draw(buf,val,id,color){
+  const c=document.getElementById(id);
+  const ctx=c.getContext("2d");
+
+  const center=c.height/2;
+  const scale=c.height*0.75;
+
+  buf.push(val);
+  if(buf.length>MAX_POINTS) buf.shift();
+
+  ctx.clearRect(0,0,c.width,c.height);
+  ctx.strokeStyle=color;
+  ctx.beginPath();
+
+  buf.forEach((v,i)=>{
+    const x=i*(c.width/(MAX_POINTS-1));
+    const y=center-(v*scale);
+    if(i===0) ctx.moveTo(x,y);
+    else ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+}
+
+function handleData(txt){
+  const p=Object.fromEntries(txt.split(",").map(e=>e.split(":")));
+
+  const g1=parseFloat(p.g1);
+  const g2=parseFloat(p.g2);
+
+  if(g1>g1max) g1max=g1;
+  if(g2>g2max) g2max=g2;
+
+  document.getElementById("g1").textContent=g1.toFixed(4);
+  document.getElementById("g2").textContent=g2.toFixed(4);
+  document.getElementById("g1max").textContent=g1max.toFixed(4);
+  document.getElementById("g2max").textContent=g2max.toFixed(4);
+
+  draw(g1buf,g1,"c1","#00e5ff");
+  draw(g2buf,g2,"c2","#ffeb3b");
+
+  document.getElementById("motorState").textContent="MOTOR: "+p.motor;
+  document.getElementById("motorState").className=
+    "indicator "+(p.motor==="ON"?"motorON":"motorOFF");
+
+  if(p.falla!=="NONE"){
+    document.getElementById("historial").innerHTML+=
+      new Date().toLocaleTimeString()+" → "+p.falla+"<br>";
+  }
+}
+
+async function connect(){
+  const device=await navigator.bluetooth.requestDevice({
+    filters:[{name:"ESP32_GESTOS"}],
+    optionalServices:["6e400001-b5a3-f393-e0a9-e50e24dcca9e"]
+  });
+
+  const server=await device.gatt.connect();
+  const service=await server.getPrimaryService("6e400001-b5a3-f393-e0a9-e50e24dcca9e");
+
+  txChar=await service.getCharacteristic("6e400003-b5a3-f393-e0a9-e50e24dcca9e");
+  rxChar=await service.getCharacteristic("6e400002-b5a3-f393-e0a9-e50e24dcca9e");
+
+  await txChar.startNotifications();
+  txChar.addEventListener("characteristicvaluechanged",e=>{
+    handleData(new TextDecoder().decode(e.target.value));
+  });
+
+  document.getElementById("status").textContent="Estado: Conectado";
+}
+
+function sendCmd(cmd){
+  if(rxChar){
+    rxChar.writeValue(new TextEncoder().encode(cmd));
+    if(cmd==="LUB_ON") document.getElementById("lubState").className="indicator lubON";
+    if(cmd==="LUB_OFF") document.getElementById("lubState").className="indicator lubOFF";
+  }
+}
+</script>
+
+</body>
+</html>
